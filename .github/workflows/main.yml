@@ -25,7 +25,7 @@ jobs:
             codesign --force --deep --sign - "$bundle"
             ditto "$bundle" "dist/$(basename "$bundle")"
           done
-          cp Tools/install.sh dist/install.sh
+          cp install.sh dist/install.sh
           ls -la dist
           (cd dist && zip -r -y ../MeghirStress-macOS.zip .)
 
