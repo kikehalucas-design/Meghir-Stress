@@ -1,31 +1,37 @@
 #pragma once
 
 #include <array>
+#include <functional>
 #include <memory>
 
 #include "PluginProcessor.h"
 
-// Look "rack" : potards dessinés en code, boutons à LED, palette sombre + cuivre.
+// Dessine les potards à échelle rotative (façon Distressor) et le potard Mix noir.
 class StrainLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
     void drawRotarySlider (juce::Graphics&, int x, int y, int width, int height,
                            float sliderPosProportional, float rotaryStartAngle,
                            float rotaryEndAngle, juce::Slider&) override;
-
-    void drawToggleButton (juce::Graphics&, juce::ToggleButton&,
-                           bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
 };
 
-// Rangée de LED de réduction de gain.
-class LedMeter : public juce::Component
+// Bouton poussoir métallique, ou simple zone cliquable invisible.
+class PushButton : public juce::Component
 {
 public:
-    void setLevel (float grDb);
+    PushButton() { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+
+    void setMetal (bool shouldDrawMetal) { metal = shouldDrawMetal; }
+
+    std::function<void()> onClick;
+
     void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
 
 private:
-    float level = 0.0f;
+    bool metal = true;
+    bool down  = false;
 };
 
 class StrainAudioProcessorEditor : public juce::AudioProcessorEditor,
@@ -40,30 +46,31 @@ public:
 
 private:
     void timerCallback() override;
-    void syncRatioButtons();
+    void drawStaticFace (juce::Graphics&);   // éléments fixes, dans l'espace de conception 1130 x 406
+    void drawDynamicParts (juce::Graphics&); // LED, dans le même espace
+
+    int  getChoiceValue (const char* id) const;
+    bool getBoolValue   (const char* id) const;
+    void setChoiceValue (const char* id, int index);
+    void setBoolValue   (const char* id, bool value);
+    void cycleChoice    (const char* id, int numChoices);
 
     StrainAudioProcessor& audioProcessor;
     StrainLookAndFeel laf;
 
-    juce::Slider inputKnob, attackKnob, releaseKnob, outputKnob;
+    juce::Image background;
+    float grDisplay = 0.0f;
+    float peakHold  = 0.0f;
 
-    juce::ComboBox ratioCombo; // invisible : sert uniquement de relais vers le paramètre
-    std::array<juce::ToggleButton, 8> ratioButtons;
+    juce::Slider inputKnob, attackKnob, releaseKnob, outputKnob, mixKnob;
 
-    juce::ToggleButton dist2Button { "DIST 2" }, dist3Button { "DIST 3" },
-                       detHpButton { "DET HP" }, optoButton  { "OPTO" },
-                       linkButton  { "LINK" };
-
-    LedMeter meter;
+    PushButton bypassButton, ratioButton, detectorButton, audioButton;
+    PushButton optoZone, linkZone;
+    std::array<PushButton, 8> ratioZones;
 
     // Les attachements doivent être détruits avant les composants : on les déclare en dernier.
-    using SliderAttachment   = juce::AudioProcessorValueTreeState::SliderAttachment;
-    using ButtonAttachment   = juce::AudioProcessorValueTreeState::ButtonAttachment;
-    using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
-
-    std::unique_ptr<SliderAttachment> inputAtt, attackAtt, releaseAtt, outputAtt;
-    std::unique_ptr<ComboBoxAttachment> ratioAtt;
-    std::unique_ptr<ButtonAttachment> dist2Att, dist3Att, detHpAtt, optoAtt, linkAtt;
+    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    std::unique_ptr<SliderAttachment> inputAtt, attackAtt, releaseAtt, outputAtt, mixAtt;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StrainAudioProcessorEditor)
 };

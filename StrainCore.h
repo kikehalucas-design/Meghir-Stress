@@ -24,9 +24,57 @@ struct Params
     int   ratioIndex = 3;     // 0..7 -> 1:1, 2:1, 3:1, 4:1, 6:1, 10:1, 20:1, NUKE
     bool  dist2      = false; // harmoniques paires
     bool  dist3      = false; // harmoniques impaires
-    bool  detHP      = false; // filtre passe-haut sur le détecteur
+    bool  detHP      = false; // détecteur : filtre passe-haut
+    bool  detMid     = false; // détecteur : bosse dans les médiums
+    bool  audioHP    = false; // chemin audio : filtre passe-haut
     bool  opto       = false; // comportement de type opto
     bool  link       = true;  // détection stéréo liée
+};
+
+// Filtre biquad 2 canaux (forme transposée directe II).
+struct Biquad
+{
+    float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f, a1 = 0.0f, a2 = 0.0f;
+    float z1[2] = {}, z2[2] = {};
+
+    void reset() { z1[0] = z1[1] = z2[0] = z2[1] = 0.0f; }
+
+    float process (int c, float x)
+    {
+        const float y = b0 * x + z1[c];
+        z1[c] = b1 * x - a1 * y + z2[c];
+        z2[c] = b2 * x - a2 * y;
+        return y;
+    }
+
+    void setHighpass (float fs, float freq, float q)
+    {
+        const float w0    = 6.2831853f * freq / fs;
+        const float cosw  = std::cos (w0);
+        const float alpha = std::sin (w0) / (2.0f * q);
+        const float a0    = 1.0f + alpha;
+
+        b0 = (1.0f + cosw) * 0.5f / a0;
+        b1 = -(1.0f + cosw) / a0;
+        b2 = b0;
+        a1 = -2.0f * cosw / a0;
+        a2 = (1.0f - alpha) / a0;
+    }
+
+    void setPeaking (float fs, float freq, float q, float gainDb)
+    {
+        const float A     = std::pow (10.0f, gainDb / 40.0f);
+        const float w0    = 6.2831853f * freq / fs;
+        const float cosw  = std::cos (w0);
+        const float alpha = std::sin (w0) / (2.0f * q);
+        const float a0    = 1.0f + alpha / A;
+
+        b0 = (1.0f + alpha * A) / a0;
+        b1 = -2.0f * cosw / a0;
+        b2 = (1.0f - alpha * A) / a0;
+        a1 = -2.0f * cosw / a0;
+        a2 = (1.0f - alpha / A) / a0;
+    }
 };
 
 class Core
@@ -37,15 +85,19 @@ public:
     static constexpr float kRatios[kNumRatios] = { 1.0f, 2.0f, 3.0f, 4.0f, 6.0f, 10.0f, 20.0f, 1000.0f };
 
     // ---- CALIBRATION --------------------------------------------------------
-    static constexpr float kThresholdDb  = -20.0f;   // seuil fixe (l'Input règle le niveau d'attaque)
-    static constexpr float kDetectorHpHz = 100.0f;   // fréquence du filtre "Det HP"
-    static constexpr float kAttackMinMs  = 0.05f;    // attack = 1
-    static constexpr float kAttackMaxMs  = 150.0f;   // attack = 10
-    static constexpr float kReleaseMinMs = 50.0f;    // release = 1
-    static constexpr float kReleaseMaxMs = 3500.0f;  // release = 10
-    static constexpr float kEvenDrive    = 1.2f;     // force de "Dist 2"
-    static constexpr float kEvenBias     = 0.25f;
-    static constexpr float kOddDrive     = 1.5f;     // force de "Dist 3"
+    static constexpr float kThresholdDb   = -20.0f;   // seuil fixe (l'Input règle le niveau d'attaque)
+    static constexpr float kDetectorHpHz  = 100.0f;   // détecteur : passe-haut
+    static constexpr float kDetMidHz      = 3000.0f;  // détecteur : bosse médiums
+    static constexpr float kDetMidQ       = 0.8f;
+    static constexpr float kDetMidGainDb  = 6.0f;
+    static constexpr float kAudioHpHz     = 80.0f;    // chemin audio : passe-haut
+    static constexpr float kAttackMinMs   = 0.05f;    // attack = 1
+    static constexpr float kAttackMaxMs   = 150.0f;   // attack = 10
+    static constexpr float kReleaseMinMs  = 50.0f;    // release = 1
+    static constexpr float kReleaseMaxMs  = 3500.0f;  // release = 10
+    static constexpr float kEvenDrive     = 1.2f;     // force de "Dist 2"
+    static constexpr float kEvenBias      = 0.25f;
+    static constexpr float kOddDrive      = 1.5f;     // force de "Dist 3"
     // ------------------------------------------------------------------------
 
     void prepare (double sampleRate)
@@ -54,7 +106,9 @@ public:
         gainSmooth = 1.0f - std::exp (-1.0f / (0.02f * fs));
         dcCoef     = 1.0f - 6.2831853f * 10.0f / fs;
 
-        designDetectorHp();
+        detHp.setHighpass (fs, kDetectorHpHz, 0.70710678f);
+        detMid.setPeaking (fs, kDetMidHz, kDetMidQ, kDetMidGainDb);
+        audHp.setHighpass (fs, kAudioHpHz, 0.70710678f);
 
         evenBias0 = std::tanh (kEvenDrive * kEvenBias);
         evenNorm  = 1.0f / (kEvenDrive * (1.0f - evenBias0 * evenBias0));
@@ -68,9 +122,12 @@ public:
         for (int c = 0; c < kMaxChannels; ++c)
         {
             gr[c]  = 0.0f;
-            hpZ1[c] = hpZ2[c] = 0.0f;
             dcX1[c] = dcY1[c] = 0.0f;
         }
+        detHp.reset();
+        detMid.reset();
+        audHp.reset();
+
         inGain  = inGainTarget;
         outGain = outGainTarget;
         meterGr = 0.0f;
@@ -87,10 +144,10 @@ public:
         ratio    = kRatios[ratioIdx];
         slope    = 1.0f - 1.0f / ratio;
 
-        if (p.opto)             kneeDb = 10.0f;
-        else if (ratio <= 4.0f) kneeDb = 6.0f;
+        if (p.opto)              kneeDb = 10.0f;
+        else if (ratio <= 4.0f)  kneeDb = 6.0f;
         else if (ratio <= 10.0f) kneeDb = 3.0f;
-        else                    kneeDb = 0.5f;
+        else                     kneeDb = 0.5f;
 
         const float a = (std::clamp (p.attack,  1.0f, 10.0f) - 1.0f) / 9.0f;
         const float r = (std::clamp (p.release, 1.0f, 10.0f) - 1.0f) / 9.0f;
@@ -119,14 +176,20 @@ public:
             float target[kMaxChannels] = {};
             float maxTarget = 0.0f;
 
-            // 1) détection
+            // 1) chemin audio d'entrée + détection
             for (int c = 0; c < numChannels; ++c)
             {
-                x[c] = channels[c][i] * inGain;
+                const float raw      = channels[c][i];
+                const float rawHp    = audHp.process (c, raw);
+                x[c] = (params.audioHP ? rawHp : raw) * inGain;
 
-                const float filtered = runDetectorHp (c, x[c]);
-                const float det      = params.detHP ? filtered : x[c];
-                const float levelDb  = 20.0f * std::log10 (std::max (std::abs (det), 1.0e-6f));
+                // Les filtres tournent en permanence (états cohérents), on choisit la sortie.
+                const float hp     = detHp.process (c, x[c]);
+                const float stage1 = params.detHP ? hp : x[c];
+                const float mid    = detMid.process (c, stage1);
+                const float det    = params.detMid ? mid : stage1;
+
+                const float levelDb = 20.0f * std::log10 (std::max (std::abs (det), 1.0e-6f));
 
                 target[c] = gainComputer (levelDb);
                 maxTarget = std::max (maxTarget, target[c]);
@@ -225,29 +288,6 @@ private:
         return y;
     }
 
-    // Passe-haut 2e ordre (Butterworth), forme transposée directe II.
-    void designDetectorHp()
-    {
-        const float w0    = 6.2831853f * kDetectorHpHz / fs;
-        const float cosw  = std::cos (w0);
-        const float alpha = std::sin (w0) / (2.0f * 0.70710678f);
-        const float a0    = 1.0f + alpha;
-
-        hb0 = (1.0f + cosw) * 0.5f / a0;
-        hb1 = -(1.0f + cosw) / a0;
-        hb2 = hb0;
-        ha1 = -2.0f * cosw / a0;
-        ha2 = (1.0f - alpha) / a0;
-    }
-
-    float runDetectorHp (int c, float x)
-    {
-        const float y = hb0 * x + hpZ1[c];
-        hpZ1[c] = hb1 * x - ha1 * y + hpZ2[c];
-        hpZ2[c] = hb2 * x - ha2 * y;
-        return y;
-    }
-
     Params params;
 
     float fs = 48000.0f;
@@ -262,8 +302,7 @@ private:
     float gr[kMaxChannels] = {};
     float meterGr = 0.0f;
 
-    float hb0 = 1.0f, hb1 = 0.0f, hb2 = 0.0f, ha1 = 0.0f, ha2 = 0.0f;
-    float hpZ1[kMaxChannels] = {}, hpZ2[kMaxChannels] = {};
+    Biquad detHp, detMid, audHp;
 
     float dcX1[kMaxChannels] = {}, dcY1[kMaxChannels] = {};
     float evenBias0 = 0.0f, evenNorm = 1.0f;

@@ -9,16 +9,17 @@
 
 namespace ParamIDs
 {
-    inline constexpr const char* input   = "input";
-    inline constexpr const char* attack  = "attack";
-    inline constexpr const char* release = "release";
-    inline constexpr const char* output  = "output";
-    inline constexpr const char* ratio   = "ratio";
-    inline constexpr const char* dist2   = "dist2";
-    inline constexpr const char* dist3   = "dist3";
-    inline constexpr const char* detHP   = "dethp";
-    inline constexpr const char* opto    = "opto";
-    inline constexpr const char* link    = "link";
+    inline constexpr const char* input    = "input";
+    inline constexpr const char* attack   = "attack";
+    inline constexpr const char* release  = "release";
+    inline constexpr const char* output   = "output";
+    inline constexpr const char* mix      = "mix";
+    inline constexpr const char* ratio    = "ratio";
+    inline constexpr const char* opto     = "opto";
+    inline constexpr const char* link     = "link";
+    inline constexpr const char* detector = "detector";   // Off / HP / Mid / HP+Mid
+    inline constexpr const char* audio    = "audio";      // Off / HP / Dist 2 / Dist 3
+    inline constexpr const char* bypass   = "bypass";
 }
 
 class StrainAudioProcessor : public juce::AudioProcessor
@@ -50,8 +51,10 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    // Réduction de gain (dB, positive) du dernier bloc : lue par le vumètre de l'éditeur.
-    float getGainReductionDb() const { return grMeter.load(); }
+    // Lus par l'éditeur (à peu près 30 fois par seconde) : renvoient le maximum
+    // depuis la dernière lecture, puis remettent le compteur à zéro.
+    float takeGainReductionDb() { return grMeter.exchange (0.0f); }
+    float takeOutputPeak()      { return outPeak.exchange (0.0f); }
 
     juce::AudioProcessorValueTreeState apvts;
 
@@ -65,7 +68,11 @@ private:
     juce::dsp::Oversampling<float> oversampling { 2, 1,
         juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true };
 
+    juce::AudioBuffer<float> dryBuffer;          // copie du signal d'entrée (même alignement)
+    juce::SmoothedValue<float> mixSmoothed;      // mix / bypass lissés
+
     std::atomic<float> grMeter { 0.0f };
+    std::atomic<float> outPeak { 0.0f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StrainAudioProcessor)
 };
