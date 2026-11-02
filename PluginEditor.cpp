@@ -548,11 +548,10 @@ void StrainAudioProcessorEditor::drawStaticFace (juce::Graphics& g)
 
     // ---- Nom du plugin à la place du logo ------------------------------------
     {
-        juce::Graphics::ScopedSaveState state (g);
-        g.addTransform (juce::AffineTransform::shear (-0.2f, 0.0f).translated (0.2f * 90.0f, 0.0f));
+        // Brush Script MT est déjà inclinée : pas de transformation supplémentaire.
         g.setColour (kLabel);
-        g.setFont (juce::FontOptions (40.0f).withStyle ("Bold"));
-        g.drawFittedText ("Meghir Stress", 118, 62, 220, 56, juce::Justification::centredLeft, 1, 0.6f);
+        g.setFont (juce::FontOptions ("Brush Script MT", 54.0f, juce::Font::plain));
+        g.drawFittedText ("Meghir Stress", 114, 56, 226, 68, juce::Justification::centredLeft, 1, 0.6f);
     }
 
     // ---- Barre de réduction de gain : titres, chiffres ------------------------
