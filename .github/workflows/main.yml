@@ -1,0 +1,35 @@
+name: Build Meghir Stress (macOS)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release -j 4
+
+      - name: Collect and sign plugins
+        run: |
+          mkdir -p dist
+          find build -type d \( -name "*.vst3" -o -name "*.component" \) | while read -r bundle; do
+            echo "Found: $bundle"
+            codesign --force --deep --sign - "$bundle"
+            ditto "$bundle" "dist/$(basename "$bundle")"
+          done
+          cp Tools/install.sh dist/install.sh
+          ls -la dist
+          (cd dist && zip -r -y ../MeghirStress-macOS.zip .)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MeghirStress-macOS
+          path: MeghirStress-macOS.zip
