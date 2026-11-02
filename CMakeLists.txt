@@ -36,8 +36,8 @@ juce_add_plugin(Strain
 )
 
 target_sources(Strain PRIVATE
-    Source/PluginProcessor.cpp
-    Source/PluginEditor.cpp
+    PluginProcessor.cpp
+    PluginEditor.cpp
 )
 
 target_compile_definitions(Strain PUBLIC
