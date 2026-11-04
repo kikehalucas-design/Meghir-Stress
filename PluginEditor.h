@@ -62,15 +62,15 @@ private:
     float grDisplay = 0.0f;
     float peakHold  = 0.0f;
 
-    juce::Slider inputKnob, attackKnob, releaseKnob, outputKnob, mixKnob;
+    juce::Slider inputKnob, attackKnob, releaseKnob, outputKnob, mixKnob, thresholdKnob;
 
-    PushButton bypassButton, ratioButton, detectorButton, audioButton;
-    PushButton optoZone, linkZone;
+    PushButton ratioButton, detectorButton, audioButton;
+    PushButton optoZone, linkZone, powerZone, thrZone;
     std::array<PushButton, 8> ratioZones;
 
     // Les attachements doivent être détruits avant les composants : on les déclare en dernier.
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    std::unique_ptr<SliderAttachment> inputAtt, attackAtt, releaseAtt, outputAtt, mixAtt;
+    std::unique_ptr<SliderAttachment> inputAtt, attackAtt, releaseAtt, outputAtt, mixAtt, thresholdAtt;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StrainAudioProcessorEditor)
 };

@@ -51,7 +51,12 @@ AudioProcessorValueTreeState::ParameterLayout StrainAudioProcessor::createParame
         ParameterID { ParamIDs::audio, 1 }, "Audio",
         StringArray { "Off", "HP", "Dist 2", "Dist 3" }, 0));
 
-    layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParamIDs::bypass, 1 }, "Bypass", false));
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { ParamIDs::threshold, 1 }, "Threshold",
+        NormalisableRange<float> (0.0f, 10.0f, 0.01f), 5.0f));
+
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParamIDs::thrOn, 1 }, "Threshold On", false));
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParamIDs::power, 1 }, "Power", true));
 
     return layout;
 }
@@ -79,6 +84,10 @@ strain::Params StrainAudioProcessor::readParams() const
     p.audioHP = (aud == 1);
     p.dist2   = (aud == 2);
     p.dist3   = (aud == 3);
+
+    // Threshold optionnel : 0..10 -> 0..-40 dBFS (5 = -20 dBFS, comme le seuil fixe)
+    p.thresholdMode = get (ParamIDs::thrOn) > 0.5f;
+    p.thresholdDb   = -get (ParamIDs::threshold) * 4.0f;
     return p;
 }
 
@@ -106,9 +115,9 @@ void StrainAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     dryBuffer.clear();
 
     mixSmoothed.reset (sampleRate * 2.0, 0.02);
-    mixSmoothed.setCurrentAndTargetValue (apvts.getRawParameterValue (ParamIDs::bypass)->load() > 0.5f
-                                              ? 0.0f
-                                              : apvts.getRawParameterValue (ParamIDs::mix)->load());
+    mixSmoothed.setCurrentAndTargetValue (apvts.getRawParameterValue (ParamIDs::power)->load() > 0.5f
+                                              ? apvts.getRawParameterValue (ParamIDs::mix)->load()
+                                              : 0.0f);
 }
 
 void StrainAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&)
@@ -121,9 +130,9 @@ void StrainAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&
 
     core.setParams (readParams());
 
-    const bool bypassed = apvts.getRawParameterValue (ParamIDs::bypass)->load() > 0.5f;
-    const float mix     = apvts.getRawParameterValue (ParamIDs::mix)->load();
-    mixSmoothed.setTargetValue (bypassed ? 0.0f : mix);
+    const bool powerOn = apvts.getRawParameterValue (ParamIDs::power)->load() > 0.5f;
+    const float mix    = apvts.getRawParameterValue (ParamIDs::mix)->load();
+    mixSmoothed.setTargetValue (powerOn ? mix : 0.0f);   // POWER éteint = signal d'origine, transition douce
 
     dsp::AudioBlock<float> block (buffer);
     auto active = block.getSubsetChannelBlock (0, (size_t) numChannels);
@@ -144,7 +153,7 @@ void StrainAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&
 
     core.process (channels, numChannels, n);
 
-    // Mix dry/comp (et bypass, qui est un mix à 0 avec transition douce).
+    // Mix dry/comp (et POWER éteint, qui est un mix à 0 avec transition douce).
     float peak = 0.0f;
     for (int i = 0; i < n; ++i)
     {

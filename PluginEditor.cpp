@@ -200,6 +200,47 @@ void drawMixKnob (juce::Graphics& g, float cx, float cy, float R, float pos)
     g.setColour (juce::Colour (0xfff2f2f2));
     g.drawLine (p1.x, p1.y, p2.x, p2.y, 2.6f * u);
 }
+
+// Interrupteur à bascule POWER : la moitié haute s'allume quand le plugin est actif.
+void drawPowerRocker (juce::Graphics& g, bool on)
+{
+    const juce::Rectangle<float> frame  (974.0f, 52.0f, 70.0f, 90.0f);
+    const juce::Rectangle<float> top    (979.0f, 57.0f, 60.0f, 42.0f);
+    const juce::Rectangle<float> bottom (979.0f, 99.0f, 60.0f, 38.0f);
+
+    g.setColour (juce::Colour (0xff0c0c0c));
+    g.fillRoundedRectangle (frame, 9.0f);
+
+    if (on)
+    {
+        const float cx = top.getCentreX(), cy = top.getCentreY();
+        juce::ColourGradient halo (kOrange.withAlpha (0.45f), cx, cy, kOrange.withAlpha (0.0f), cx + 36.0f, cy, true);
+        g.setGradientFill (halo);
+        g.fillEllipse (cx - 36.0f, cy - 36.0f, 72.0f, 72.0f);
+
+        g.setGradientFill (juce::ColourGradient (kOrange.brighter (0.7f), 0.0f, top.getY(),
+                                                 kOrange.darker (0.3f),   0.0f, top.getBottom(), false));
+        g.fillRoundedRectangle (top, 6.0f);
+
+        g.setColour (juce::Colour (0xff151515));
+        g.fillRoundedRectangle (bottom, 6.0f);
+    }
+    else
+    {
+        g.setColour (juce::Colour (0xff151515));
+        g.fillRoundedRectangle (top, 6.0f);
+
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff454545), 0.0f, bottom.getY(),
+                                                 juce::Colour (0xff1c1c1c), 0.0f, bottom.getBottom(), false));
+        g.fillRoundedRectangle (bottom, 6.0f);
+    }
+
+    label (g, "I", top.getCentreX(),    top.getCentreY(),    16.0f, true, on ? juce::Colour (0xff3a1d05) : juce::Colour (0xff5a5a5a));
+    label (g, "O", bottom.getCentreX(), bottom.getCentreY(), 16.0f, true, on ? juce::Colour (0xff5a5a5a) : juce::Colour (0xffd0d0d0));
+
+    g.setColour (juce::Colour (0xff6a6a6a));
+    g.drawRoundedRectangle (frame, 9.0f, 1.6f);
+}
 } // namespace
 
 //==============================================================================
@@ -211,10 +252,21 @@ void StrainLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w
     const juce::Rectangle<float> b ((float) x, (float) y, (float) width, (float) height);
     const float R = std::min (b.getWidth(), b.getHeight()) * 0.5f;
 
-    if (slider.getName() == "mix")
+    if (slider.getName() == "mix" || slider.getName() == "thr")
+    {
+        const bool dimmed = ! slider.isEnabled();
+        if (dimmed)
+            g.beginTransparencyLayer (0.35f);
+
         drawMixKnob (g, b.getCentreX(), b.getCentreY(), R, pos);
+
+        if (dimmed)
+            g.endTransparencyLayer();
+    }
     else
+    {
         drawDial (g, b.getCentreX(), b.getCentreY(), R, pos * 10.0f);
+    }
 }
 
 //==============================================================================
@@ -294,13 +346,20 @@ StrainAudioProcessorEditor::StrainAudioProcessorEditor (StrainAudioProcessor& p)
     linkZone.onClick = [this] { setBoolValue (ParamIDs::link, ! getBoolValue (ParamIDs::link)); };
     addAndMakeVisible (linkZone);
 
+    // Interrupteur POWER (zone cliquable sur la façade) et activation du Threshold
+    powerZone.setMetal (false);
+    powerZone.onClick = [this] { setBoolValue (ParamIDs::power, ! getBoolValue (ParamIDs::power)); };
+    addAndMakeVisible (powerZone);
+
+    thrZone.setMetal (false);
+    thrZone.onClick = [this] { setBoolValue (ParamIDs::thrOn, ! getBoolValue (ParamIDs::thrOn)); };
+    addAndMakeVisible (thrZone);
+
     // Boutons poussoirs métalliques
-    bypassButton.onClick   = [this] { setBoolValue (ParamIDs::bypass, ! getBoolValue (ParamIDs::bypass)); };
     ratioButton.onClick    = [this] { cycleChoice (ParamIDs::ratio, 8); };
     detectorButton.onClick = [this] { cycleChoice (ParamIDs::detector, 4); };
     audioButton.onClick    = [this] { cycleChoice (ParamIDs::audio, 4); };
 
-    addAndMakeVisible (bypassButton);
     addAndMakeVisible (ratioButton);
     addAndMakeVisible (detectorButton);
     addAndMakeVisible (audioButton);
@@ -311,6 +370,8 @@ StrainAudioProcessorEditor::StrainAudioProcessorEditor (StrainAudioProcessor& p)
     setupDial (releaseKnob, 5.0, "dial");
     setupDial (outputKnob,  5.0, "dial");
     setupDial (mixKnob,     1.0, "mix");
+    setupDial (thresholdKnob, 5.0, "thr");
+    thresholdKnob.setEnabled (getBoolValue (ParamIDs::thrOn));
 
     auto& apvts = audioProcessor.apvts;
     inputAtt   = std::make_unique<SliderAttachment> (apvts, ParamIDs::input,   inputKnob);
@@ -318,6 +379,7 @@ StrainAudioProcessorEditor::StrainAudioProcessorEditor (StrainAudioProcessor& p)
     releaseAtt = std::make_unique<SliderAttachment> (apvts, ParamIDs::release, releaseKnob);
     outputAtt  = std::make_unique<SliderAttachment> (apvts, ParamIDs::output,  outputKnob);
     mixAtt     = std::make_unique<SliderAttachment> (apvts, ParamIDs::mix,     mixKnob);
+    thresholdAtt = std::make_unique<SliderAttachment> (apvts, ParamIDs::threshold, thresholdKnob);
 
     setResizable (true, true);
     setResizeLimits (565, 203, 1695, 609);
@@ -373,11 +435,13 @@ void StrainAudioProcessorEditor::timerCallback()
     const float gr = audioProcessor.takeGainReductionDb();
     const float pk = audioProcessor.takeOutputPeak();
 
-    grDisplay = std::max (getBoolValue (ParamIDs::bypass) ? 0.0f : gr, grDisplay * 0.86f);
+    grDisplay = std::max (getBoolValue (ParamIDs::power) ? gr : 0.0f, grDisplay * 0.86f);
+    thresholdKnob.setEnabled (getBoolValue (ParamIDs::thrOn));
     peakHold  = std::max (pk, peakHold * 0.94f);
 
     const float s = (float) getWidth() / kW;
     repaint (0, 0, getWidth(), (int) std::ceil (192.0f * s));
+    repaint (0, (int) std::floor (240.0f * s), (int) std::ceil (100.0f * s), (int) std::ceil (42.0f * s)); // voyant Threshold
 }
 
 void StrainAudioProcessorEditor::paint (juce::Graphics& g)
@@ -408,8 +472,10 @@ void StrainAudioProcessorEditor::resized()
     releaseKnob.setBounds (R (624.0f - half, cy - half, half * 2.0f, half * 2.0f));
     outputKnob.setBounds  (R (839.0f - half, cy - half, half * 2.0f, half * 2.0f));
     mixKnob.setBounds     (R (977.0f, 269.0f, 80.0f, 80.0f));
+    thresholdKnob.setBounds (R (14.0f, 282.0f, 80.0f, 80.0f));
+    thrZone.setBounds     (R (14.0f, 250.0f, 80.0f, 26.0f));
+    powerZone.setBounds   (R (974.0f, 52.0f, 70.0f, 90.0f));
 
-    bypassButton.setBounds   (R (342.0f, 79.0f, 72.0f, 36.0f));
     ratioButton.setBounds    (R (639.0f, 119.0f, 70.0f, 34.0f));
     detectorButton.setBounds (R (746.0f, 119.0f, 72.0f, 35.0f));
     audioButton.setBounds    (R (851.0f, 119.0f, 73.0f, 35.0f));
@@ -536,15 +602,7 @@ void StrainAudioProcessorEditor::drawStaticFace (juce::Graphics& g)
     label (g, "Opto(10)", 507.0f, 372.0f, 13.0f);
     label (g, "Opto(0)",  718.0f, 372.0f, 13.0f);
 
-    // Petite vis "HR"
-    {
-        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff8a8a8a), 60.0f, 306.0f,
-                                                 juce::Colour (0xff2a2a2a), 72.0f, 320.0f, false));
-        g.fillEllipse (55.0f, 302.0f, 20.0f, 20.0f);
-        g.setColour (juce::Colour (0xff111111));
-        g.drawLine (59.0f, 312.0f, 71.0f, 312.0f, 2.0f);
-        label (g, "HR", 65.0f, 285.0f, 15.0f);
-    }
+    label (g, "THRESH", 58.0f, 262.0f, 12.0f);
 
     // ---- Nom du plugin à la place du logo ------------------------------------
     {
@@ -559,10 +617,6 @@ void StrainAudioProcessorEditor::drawStaticFace (juce::Graphics& g)
         label (g, juce::String ((int) kGrStep[i]), kGrX[i], 17.0f, 15.0f);
 
     label (g, "GAIN REDUCTION", 447.0f, 54.0f, 18.0f);
-
-    // ---- Bypass ----------------------------------------------------------------
-    label (g, "BY",   450.0f, 95.0f, 17.0f);
-    label (g, "PASS", 510.0f, 95.0f, 17.0f);
 
     // ---- Niveau de sortie -----------------------------------------------------
     drawClippedSineIcon (g, 549.0f, 80.0f);
@@ -590,23 +644,6 @@ void StrainAudioProcessorEditor::drawStaticFace (juce::Graphics& g)
 
     label (g, "RATIO", 672.0f, 165.0f, 20.0f);
     label (g, "RATIO", 417.0f, 181.0f, 24.0f);
-
-    // ---- Interrupteur "POWER" (décoratif) --------------------------------------------
-    {
-        const juce::Rectangle<float> sw (974.0f, 52.0f, 70.0f, 90.0f);
-        g.setColour (juce::Colour (0xff0c0c0c));
-        g.fillRoundedRectangle (sw, 9.0f);
-
-        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff434343), 0.0f, 56.0f,
-                                                 juce::Colour (0xff1c1c1c), 0.0f, 98.0f, false));
-        g.fillRoundedRectangle (juce::Rectangle<float> (979.0f, 57.0f, 60.0f, 42.0f), 6.0f);
-
-        g.setColour (juce::Colour (0xff151515));
-        g.fillRoundedRectangle (juce::Rectangle<float> (979.0f, 99.0f, 60.0f, 38.0f), 6.0f);
-
-        g.setColour (juce::Colour (0xff6a6a6a));
-        g.drawRoundedRectangle (sw, 9.0f, 1.6f);
-    }
 }
 
 //==============================================================================
@@ -648,8 +685,11 @@ void StrainAudioProcessorEditor::drawDynamicParts (juce::Graphics& g)
     drawLed (g, 917.0f, 65.0f, 6.5f, kAmber, aud == 2);
     drawLed (g, 917.0f, 94.0f, 6.5f, kRed,   aud == 3);
 
-    // Bypass
-    drawLed (g, 477.0f, 96.0f, 6.5f, kRed, getBoolValue (ParamIDs::bypass));
+    // Interrupteur POWER
+    drawPowerRocker (g, getBoolValue (ParamIDs::power));
+
+    // Voyant d'activation du Threshold
+    drawLed (g, 26.0f, 262.0f, 5.5f, kOrange, getBoolValue (ParamIDs::thrOn));
 
     // Niveau de sortie
     drawLed (g, 626.0f, 65.0f, 6.5f, kRed,    peakHold >= 0.99f);

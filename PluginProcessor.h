@@ -19,7 +19,9 @@ namespace ParamIDs
     inline constexpr const char* link     = "link";
     inline constexpr const char* detector = "detector";   // Off / HP / Mid / HP+Mid
     inline constexpr const char* audio    = "audio";      // Off / HP / Dist 2 / Dist 3
-    inline constexpr const char* bypass   = "bypass";
+    inline constexpr const char* power    = "power";      // interrupteur POWER : désactivé = signal d'origine
+    inline constexpr const char* threshold = "threshold"; // seuil (0..10), utilisé seulement si thrOn
+    inline constexpr const char* thrOn    = "thron";      // active le potard Threshold
 }
 
 class StrainAudioProcessor : public juce::AudioProcessor

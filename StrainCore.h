@@ -29,6 +29,12 @@ struct Params
     bool  audioHP    = false; // chemin audio : filtre passe-haut
     bool  opto       = false; // comportement de type opto
     bool  link       = true;  // détection stéréo liée
+
+    // Mode "Threshold" (optionnel). Désactivé : le seuil est fixe et l'Input règle la compression.
+    // Activé : le seuil est réglé par thresholdDb et le détecteur mesure le signal AVANT l'Input,
+    // qui ne sert plus alors qu'à régler le niveau (et la saturation) après compression.
+    bool  thresholdMode = false;
+    float thresholdDb   = -20.0f;
 };
 
 // Filtre biquad 2 canaux (forme transposée directe II).
@@ -140,6 +146,8 @@ public:
         inGainTarget  = dbToLin (p.inputDb);
         outGainTarget = dbToLin (p.outputDb);
 
+        thr = p.thresholdMode ? p.thresholdDb : kThresholdDb;
+
         ratioIdx = std::clamp (p.ratioIndex, 0, kNumRatios - 1);
         ratio    = kRatios[ratioIdx];
         slope    = 1.0f - 1.0f / ratio;
@@ -181,11 +189,15 @@ public:
             {
                 const float raw      = channels[c][i];
                 const float rawHp    = audHp.process (c, raw);
-                x[c] = (params.audioHP ? rawHp : raw) * inGain;
+                const float pre      = params.audioHP ? rawHp : raw;   // signal avant l'Input
+                x[c] = pre * inGain;
+
+                // Mode Threshold : le détecteur écoute le signal avant l'Input.
+                const float detIn  = params.thresholdMode ? pre : x[c];
 
                 // Les filtres tournent en permanence (états cohérents), on choisit la sortie.
-                const float hp     = detHp.process (c, x[c]);
-                const float stage1 = params.detHP ? hp : x[c];
+                const float hp     = detHp.process (c, detIn);
+                const float stage1 = params.detHP ? hp : detIn;
                 const float mid    = detMid.process (c, stage1);
                 const float det    = params.detMid ? mid : stage1;
 
@@ -233,7 +245,7 @@ private:
     // Courbe statique avec coude doux (formulation classique, domaine log).
     float gainComputer (float levelDb) const
     {
-        const float over = levelDb - kThresholdDb;
+        const float over = levelDb - thr;
 
         if (2.0f * over < -kneeDb)
             return 0.0f;
@@ -295,6 +307,7 @@ private:
 
     float inGain = 1.0f, outGain = 1.0f, inGainTarget = 1.0f, outGainTarget = 1.0f;
 
+    float thr = kThresholdDb;
     int   ratioIdx = 3;
     float ratio = 4.0f, slope = 0.75f, kneeDb = 6.0f;
     float attackTau = 0.001f, releaseTau = 0.3f, attackCoef = 0.0f;
